@@ -1,0 +1,17 @@
+FROM rocm/dev-ubuntu-22.04:6.2.2
+
+# Install your custom rocBLAS for gfx906
+RUN apt-get update && apt-get install -y wget p7zip-full && \
+    wget https://github.com/likelovewant/ROCmLibs-for-gfx1103-AMD780M-APU/releases/download/v0.5.7/rocblas.for.gfx906.7z && \
+    7z x rocblas.for.gfx906.7z -orocblas-extracted && \
+    mkdir -p /opt/rocm/lib/rocblas && \
+    cp -r rocblas-extracted/library/* /opt/rocm/lib/rocblas/ && \
+    rm -rf rocblas.for.gfx906.7z rocblas-extracted
+
+# Install hipBLASLt (required for llama.cpp HIPBLAS backend)
+RUN apt-get update && apt-get install -y hipblaslt && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV HCC_AMDGPU_TARGET=gfx906 \
+    ROCBLAS_TENSILE_LIBPATH=/opt/rocm/lib/rocblas/library \
+    ROCM_PATH=/opt/rocm

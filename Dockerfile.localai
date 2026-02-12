@@ -1,0 +1,72 @@
+FROM rocm-mi50-rocm6:latest AS builder
+
+# Install build essentials
+RUN apt-get update && apt-get install -y \
+    git \
+    cmake \
+    build-essential \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go
+RUN wget -q https://go.dev/dl/go1.21.0.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.21.0.linux-amd64.tar.gz && \
+    rm go1.21.0.linux-amd64.tar.gz
+ENV PATH=$PATH:/usr/local/go/bin
+
+# Install protoc and protoc plugins
+RUN wget -q https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-x86_64.zip && \
+    unzip -o protoc-25.1-linux-x86_64.zip -d /usr/local && \
+    rm protoc-25.1-linux-x86_64.zip && \
+    go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28 && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
+ENV PATH=$PATH:/root/go/bin
+
+# Clone and build LocalAI with ROCm support
+RUN git clone https://github.com/mudler/LocalAI.git /src && \
+    cd /src && \
+    # 🔥🔥🔥 ADD THIS LINE 🔥🔥🔥
+    git submodule update --init --recursive && \
+    make GPU_SUPPORT=true AMDGPU_TARGETS=gfx906 BUILD_TYPE=hipblas build
+
+# Final image
+FROM rocm-mi50-rocm6:latest
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy LocalAI binary
+COPY --from=builder /src/local-ai /usr/local/bin/
+
+# Copy backend assets
+# COPY --from=builder /src/backend-assets/ /usr/local/bin/backend-assets/
+
+# Create necessary directories
+RUN mkdir -p /models /backends /config /tmp/localai /opt/localai /usr/local/bin/backend-assets
+
+# Copy any pre-built backends (llama-cpp-hipblas, diffusers, etc.)
+# # This is where you can bake in specific backends to avoid download issues
+# RUN mkdir -p /usr/local/bin/backend-assets/grpc
+# COPY --from=builder /src/backend-assets/grpc/llama-cpp-hipblas /usr/local/bin/backend-assets/grpc/llama-cpp-hipblas 2>/dev/null || true
+# COPY --from=builder /src/backend-assets/grpc/diffusers-hipblas /usr/local/bin/backend-assets/grpc/diffusers-hipblas 2>/dev/null || true
+
+# Environment variables for ROCm MI50
+ENV HCC_AMDGPU_TARGET=gfx906 \
+    ROCBLAS_TENSILE_LIBPATH=/opt/rocm/lib/rocblas/library \
+    ROCM_PATH=/opt/rocm \
+    AMDGPU_TARGETS=gfx906 \
+    GPU_SUPPORT=true \
+    HSA_OVERRIDE_GFX_VERSION=9.0.6 \
+    LOCALAI_FORCE_META_BACKEND_CAPABILITY=amd \
+    MODELS_PATH=/models \
+    CONFIG_PATH=/config \
+    DEBUG=true
+
+WORKDIR /opt/localai
+VOLUME ["/models", "/backends", "/config", "/tmp/localai"]
+EXPOSE 8080
+
+CMD ["local-ai", "--models-path", "/models", "--config-path", "/config", "--debug"]

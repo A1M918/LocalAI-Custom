@@ -1,0 +1,4 @@
+backends/*
+config/*
+localai-data/*
+models/*

@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  localai:
+    image: localai-rocm-mi50:rocm6
+    container_name: localai-mi50-custom
+    restart: unless-stopped
+    
+    # AMD GPU access
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    
+    # GPU and ROCm configuration
+    environment:
+      - DEBUG=true
+      - GPU_TARGETS=gfx906
+      - HSA_OVERRIDE_GFX_VERSION=9.0.6
+      - HCC_AMDGPU_TARGET=gfx906
+      - AMDGPU_TARGETS=gfx906
+      - LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib64
+      - ROCBLAS_TENSILE_LIBPATH=/opt/rocm/lib/rocblas/library
+      - ROCM_PATH=/opt/rocm
+      
+      # Performance tuning
+      - THREADS=8
+      - CONTEXT_SIZE=4096
+      - MODELS_PATH=/models
+    
+    # Persistent volumes
+    volumes:
+      - ./models:/models:rw
+      - ./backends:/opt/localai/backends:rw
+      - ./localai-data/backend_data:/tmp/localai/backend_data:rw
+      - ./localai-data:/tmp/localai:rw
+      - ./config:/config:ro
+    
+    ports:
+      - "8080:8080"
+    
+    stdin_open: true
+    tty: true
+    
+    # Command - REMOVED --config-path flag
+    command: 
+      - local-ai
+      - run
+      - --models-path
+      - /models
+      - --debug
+    
+    security_opt:
+      - seccomp:unconfined
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

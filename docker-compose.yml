@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  localai:
+    build:
+      context: .
+      dockerfile: Dockerfile.localai
+    image: localai-rocm-mi50:custom
+    container_name: localai-rocm-mi50
+    restart: unless-stopped
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - HCC_AMDGPU_TARGET=gfx906
+      - ROCBLAS_TENSILE_LIBPATH=/opt/rocm/lib/rocblas/library
+      - ROCM_PATH=/opt/rocm
+      - HSA_OVERRIDE_GFX_VERSION=9.0.6
+      - DEBUG=true
+    volumes:
+      - ./models:/models
+      - ./localai-data:/tmp/localai
+      - ./config:/config
+    ports:
+      - "8080:8080"
+    working_dir: /build
+    command: >
+      sh -c "
+      # Install LocalAI dependencies
+      apt-get update && apt-get install -y git cmake build-essential libcublas-dev &&
+
+      # Clone and build LocalAI with ROCm support
+      git clone https://github.com/mudler/LocalAI.git /build &&
+      cd /build &&
+      make GPU_SUPPORT=true AMDGPU_TARGETS=gfx906 BUILD_TYPE=clblas_fatbin &&
+
+      # Create models directory
+      mkdir -p /models &&
+
+      # Start LocalAI
+      ./local-ai --models-path /models --config-path /config --debug
+      "
